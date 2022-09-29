@@ -35,6 +35,19 @@ class Button:
         raise NotImplementedError("Not implemented!")
 
 
+class BlankButton(Button):
+    def __init__(self) -> None:
+        super().__init__("")
+
+    @property
+    def state(self) -> Optional[bool]:
+        return False
+
+    @state.setter
+    def state(self, newstate: bool) -> None:
+        pass
+
+
 class HomeAssistantButton(Button):
     def __init__(self, uri: str, token: str, entity: str) -> None:
         super().__init__(entity)
@@ -230,7 +243,11 @@ class StreamDeckDriver:
         return PILHelper.to_native_format(self.deck, image)
 
     def update_key_image(self, key: int) -> None:
-        if key < 0 or key >= len(self.buttons):
+        if (
+            key < 0
+            or key >= len(self.__buttons)
+            or isinstance(self.__buttons[key], BlankButton)
+        ):
             key_style = {
                 "icon": os.path.join(ASSETS_PATH, "Blank.png"),
                 "label": "",
@@ -354,17 +371,20 @@ if __name__ == "__main__":
         )
 
         try:
-            if config.homeassistant_uri and config.homeassistant_token:
-                driver.add_buttons(
-                    [
-                        HomeAssistantButton(
-                            config.homeassistant_uri,
-                            config.homeassistant_token,
-                            entity,
-                        )
-                        for entity in config.homeassistant_entities
-                    ]
-                )
+
+            def buttonfactory(entity: str) -> Button:
+                if entity and config.homeassistant_uri and config.homeassistant_token:
+                    return HomeAssistantButton(
+                        config.homeassistant_uri,
+                        config.homeassistant_token,
+                        entity,
+                    )
+                else:
+                    return BlankButton()
+
+            driver.add_buttons(
+                [buttonfactory(entity) for entity in config.homeassistant_entities]
+            )
 
             while not driver.closed:
                 time.sleep(1.0)
