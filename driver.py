@@ -7,7 +7,7 @@ import time
 import yaml
 from typing import Any, List, Optional, Sequence, Tuple
 
-from PIL import Image, ImageDraw, ImageFont  # type: ignore
+from PIL import Image, ImageDraw, ImageFont, ImageChops  # type: ignore
 from StreamDeck.DeviceManager import DeviceManager  # type: ignore
 from StreamDeck.ImageHelpers import PILHelper  # type: ignore
 from StreamDeck.Transport.Transport import TransportError  # type: ignore
@@ -78,6 +78,7 @@ class StreamDeckDriver:
         self,
         deck: StreamDeck,
         font: str = "DejaVuSans.ttf",
+        icon_color: Tuple[str, str] = ("#FFFFFF", "#777777"),
         fontsize: int = 14,
         brightness: int = 30,
         timeout: int = 60,
@@ -88,6 +89,7 @@ class StreamDeckDriver:
         self.__font: ImageFont.ImageFont = ImageFont.truetype(
             os.path.join(ASSETS_PATH, font), self.__height
         )
+        self.__icon_colors = icon_color
         self.__closed = False
         self.__timeout = timeout
         self.__lastbutton = time.time()
@@ -196,9 +198,16 @@ class StreamDeckDriver:
 
         return [(ln, self.__font.getlength(ln)) for ln in lines if ln]
 
-    def render_key_image(self, icon_filename: str, label_text: str) -> StreamDeckImage:
+    def render_key_image(
+        self, icon_filename: str, icon_color: str, label_text: str
+    ) -> StreamDeckImage:
         icon = Image.open(icon_filename)
-        image = PILHelper.create_scaled_image(self.deck, icon, margins=[0, 0, 20, 0])
+        iconimage = PILHelper.create_scaled_image(
+            self.deck, icon, margins=[0, 0, 20, 0]
+        )
+        colorimage = Image.new("RGB", iconimage.size, icon_color)
+        image = ImageChops.multiply(iconimage, colorimage)
+
         draw = ImageDraw.Draw(image)
 
         lines = self.get_wrapped_text(label_text, image.width)
@@ -225,17 +234,22 @@ class StreamDeckDriver:
             key_style = {
                 "icon": os.path.join(ASSETS_PATH, "Blank.png"),
                 "label": "",
+                "color": "#000000",
             }
         else:
+            state = self.__buttons[key].state
             key_style = {
                 "icon": os.path.join(
                     ASSETS_PATH,
-                    "{}.png".format("On" if self.__buttons[key].state else "Off"),
+                    "{}.png".format("On" if state else "Off"),
                 ),
                 "label": self.__buttons[key].label,
+                "color": self.__icon_colors[0] if state else self.__icon_colors[1],
             }
 
-        image = self.render_key_image(key_style["icon"], key_style["label"])
+        image = self.render_key_image(
+            key_style["icon"], key_style["color"], key_style["label"]
+        )
 
         try:
             with self.deck:
@@ -282,6 +296,18 @@ class Config:
             self.screen_brightness = int(screen.get("brightness", 30))
             self.screen_timeout = int(screen.get("timeout", 60))
 
+            icon = yamlfile.get("icon", {})
+            icon_color = icon.get("color", {})
+
+            # PyYAML does this insanely stupid thing where it converts *KEYS* to booleans
+            # based on an internal pattern. What the unholy fuck, this is some PHP shit.
+            self.icon_color_on = str(
+                icon_color.get(True, icon_color.get("on", "#FFFFFF"))
+            )
+            self.icon_color_off = str(
+                icon_color.get(False, icon_color.get("off", "#777777"))
+            )
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -322,6 +348,7 @@ if __name__ == "__main__":
             found_deck,
             font=config.font_face,
             fontsize=config.font_size,
+            icon_color=(config.icon_color_on, config.icon_color_off),
             brightness=config.screen_brightness,
             timeout=config.screen_timeout,
         )
@@ -343,6 +370,7 @@ if __name__ == "__main__":
                 time.sleep(1.0)
                 driver.refresh()
         except KeyboardInterrupt:
+            print("Closing device due to Ctrl-C request.")
             driver.close()
 
     # Wait until all application threads have terminated (for this example,
