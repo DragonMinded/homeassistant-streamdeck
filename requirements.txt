@@ -2,5 +2,6 @@ mypy
 flake8
 black
 types-requests
+types-pyyaml
 pillow
 pyyaml

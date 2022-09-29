@@ -206,8 +206,12 @@ class Config:
             yamlfile = yaml.safe_load(stream)
 
             hass = yamlfile.get("homeassistant", {})
-            self.homeassistant_uri = hass.get("url", None)
-            self.homeassistant_token = hass.get("token", None)
+            self.homeassistant_uri: Optional[str] = hass.get("url", None)
+            self.homeassistant_token: Optional[str] = hass.get("token", None)
+            self.homeassistant_entities: List[str] = []
+
+            for entry in hass.get("entities", []) or []:
+                self.homeassistant_entities.append(entry)
 
 
 if __name__ == "__main__":
@@ -248,13 +252,15 @@ if __name__ == "__main__":
         driver = StreamDeckDriver(found_deck, brightness=30)
 
         try:
-            driver.add_button(
-                HomeAssistantButton(
-                    config.homeassistant_uri,
-                    config.homeassistant_token,
-                    "switch.bishi_bashi",
-                )
-            )
+            if config.homeassistant_uri and config.homeassistant_token:
+                for entity in config.homeassistant_entities:
+                    driver.add_button(
+                        HomeAssistantButton(
+                            config.homeassistant_uri,
+                            config.homeassistant_token,
+                            entity,
+                        )
+                    )
 
             while not driver.closed:
                 time.sleep(1.0)
