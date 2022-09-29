@@ -1,0 +1,6 @@
+*.yaml
+*.swp
+*.swo
+build/
+*.pyc
+*.pyo
