@@ -5,7 +5,7 @@ import requests
 import threading
 import time
 import yaml
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
 
 from PIL import Image, ImageDraw, ImageFont  # type: ignore
 from StreamDeck.DeviceManager import DeviceManager  # type: ignore
@@ -75,12 +75,17 @@ class HomeAssistantButton(Button):
 
 class StreamDeckDriver:
     def __init__(
-        self, deck: StreamDeck, font: str = "DejaVuSans.ttf", brightness: int = 30
+        self,
+        deck: StreamDeck,
+        font: str = "DejaVuSans.ttf",
+        fontsize: int = 14,
+        brightness: int = 30,
     ) -> None:
         self.deck: StreamDeck = deck
         self.__buttons: List[Button] = []
+        self.__height: int = fontsize
         self.__font: ImageFont.ImageFont = ImageFont.truetype(
-            os.path.join(ASSETS_PATH, font), 14
+            os.path.join(ASSETS_PATH, font), self.__height
         )
         self.__closed = False
 
@@ -138,30 +143,67 @@ class StreamDeckDriver:
         except TransportError:
             pass
 
-    def get_wrapped_text(self, label_text: str, line_length: int) -> str:
+    def split_word(self, word: str) -> Tuple[str, str]:
+        tot = len(word)
+        loc = int(len(word) / 2)
+        sub = 0
+
+        while sub <= loc:
+            if word[loc - sub].isupper():
+                return (word[: (loc - sub)], word[(loc - sub) :])
+            if (loc + sub) < tot and word[loc + sub].isupper():
+                return (word[: (loc + sub)], word[(loc + sub) :])
+
+            sub += 1
+
+        # Just split evenly
+        return (word[:loc], word[loc:])
+
+    def get_wrapped_text(
+        self, label_text: str, line_length: int
+    ) -> List[Tuple[str, int]]:
         lines = [""]
         for word in label_text.split():
+            oldline = lines[-1].strip()
             line = f"{lines[-1]} {word}".strip()
+
             if self.__font.getlength(line) <= line_length:
+                # We have enough room to add this word to the line.
                 lines[-1] = line
             else:
-                lines.append(word)
-        return "\n".join([ln for ln in lines if ln])
+                if oldline:
+                    # There was something on the previous line, so start a new one.
+                    lines.append(word)
+                else:
+                    # There was nothing on the line, this word doesn't fit, so split it.
+                    w1, w2 = self.split_word(word)
+
+                    lines[-1] = f"{lines[-1]} {w1}".strip()
+                    lines.append(w2)
+
+        return [(ln, self.__font.getlength(ln)) for ln in lines if ln]
 
     def render_key_image(self, icon_filename: str, label_text: str) -> StreamDeckImage:
         icon = Image.open(icon_filename)
         image = PILHelper.create_scaled_image(self.deck, icon, margins=[0, 0, 20, 0])
         draw = ImageDraw.Draw(image)
-        text = self.get_wrapped_text(label_text, image.width)
-        numlines = len(text.split())
 
-        draw.multiline_text(
-            (image.width / 2, image.height - (5 + (14 * (numlines - 1)))),
-            text=text,
-            font=self.__font,
-            anchor="ms",
-            fill="white",
-        )
+        lines = self.get_wrapped_text(label_text, image.width)
+        numlines = len(lines)
+        if numlines < 2:
+            numlines = 2
+
+        for lno, (line, width) in enumerate(lines):
+            draw.text(
+                (
+                    (image.width - width) / 2,
+                    image.height - (5 + (self.__height * (numlines - lno))),
+                ),
+                text=line,
+                font=self.__font,
+                anchor="lt",
+                fill="white",
+            )
 
         return PILHelper.to_native_format(self.deck, image)
 
@@ -213,6 +255,13 @@ class Config:
             for entry in hass.get("entities", []) or []:
                 self.homeassistant_entities.append(entry)
 
+            font = yamlfile.get("font", {})
+            self.font_size = int(font.get("size", 14))
+            self.font_face = font.get("face", "DejaVuSans.ttf")
+
+            screen = yamlfile.get("screen", {})
+            self.screen_brightness = int(screen.get("brightness", 30))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -248,8 +297,13 @@ if __name__ == "__main__":
             )
         )
 
-        # Set initial screen brightness to 30%.
-        driver = StreamDeckDriver(found_deck, brightness=30)
+        # Set initial screen brightness.
+        driver = StreamDeckDriver(
+            found_deck,
+            font=config.font_face,
+            fontsize=config.font_size,
+            brightness=config.screen_brightness,
+        )
 
         try:
             if config.homeassistant_uri and config.homeassistant_token:
