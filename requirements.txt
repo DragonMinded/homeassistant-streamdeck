@@ -5,3 +5,4 @@ types-requests
 types-pyyaml
 pillow
 pyyaml
+streamdeck

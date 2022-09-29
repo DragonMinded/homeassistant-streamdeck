@@ -5,7 +5,7 @@ import requests
 import threading
 import time
 import yaml
-from typing import Any, List, Optional, Tuple
+from typing import Any, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageDraw, ImageFont  # type: ignore
 from StreamDeck.DeviceManager import DeviceManager  # type: ignore
@@ -80,6 +80,7 @@ class StreamDeckDriver:
         font: str = "DejaVuSans.ttf",
         fontsize: int = 14,
         brightness: int = 30,
+        timeout: int = 60,
     ) -> None:
         self.deck: StreamDeck = deck
         self.__buttons: List[Button] = []
@@ -88,6 +89,8 @@ class StreamDeckDriver:
             os.path.join(ASSETS_PATH, font), self.__height
         )
         self.__closed = False
+        self.__timeout = timeout
+        self.__lastbutton = time.time()
 
         # Set up a key change callback
         deck.set_key_callback(self.key_change_callback)
@@ -126,9 +129,19 @@ class StreamDeckDriver:
         self.__buttons.append(button)
         self.refresh()
 
+    def add_buttons(self, buttons: Sequence[Button]) -> None:
+        # TODO: Handle having too many buttons.
+        self.__buttons.extend(buttons)
+        self.refresh()
+
     def refresh(self) -> None:
         for i in range(self.deck.key_count()):
             self.update_key_image(i)
+
+        if self.__timeout > 0 and ((self.__lastbutton + self.__timeout) < time.time()):
+            # Screen timed out
+            with self.deck:
+                self.deck.set_brightness(0)
 
     def close(self) -> None:
         self.__closed = True
@@ -237,8 +250,14 @@ class StreamDeckDriver:
             # Don't care about release actions
             return
 
-        if key >= 0 and key < len(self.buttons):
+        if self.__timeout > 0 and (self.__lastbutton + self.__timeout < time.time()):
+            # Screen timed out, need to wake
+            with self.deck:
+                self.deck.set_brightness(self.__brightness)
+        elif key >= 0 and key < len(self.buttons):
             self.__buttons[key].state = not self.__buttons[key].state
+
+        self.__lastbutton = time.time()
         self.update_key_image(key)
 
 
@@ -261,6 +280,7 @@ class Config:
 
             screen = yamlfile.get("screen", {})
             self.screen_brightness = int(screen.get("brightness", 30))
+            self.screen_timeout = int(screen.get("timeout", 60))
 
 
 if __name__ == "__main__":
@@ -303,18 +323,21 @@ if __name__ == "__main__":
             font=config.font_face,
             fontsize=config.font_size,
             brightness=config.screen_brightness,
+            timeout=config.screen_timeout,
         )
 
         try:
             if config.homeassistant_uri and config.homeassistant_token:
-                for entity in config.homeassistant_entities:
-                    driver.add_button(
+                driver.add_buttons(
+                    [
                         HomeAssistantButton(
                             config.homeassistant_uri,
                             config.homeassistant_token,
                             entity,
                         )
-                    )
+                        for entity in config.homeassistant_entities
+                    ]
+                )
 
             while not driver.closed:
                 time.sleep(1.0)
