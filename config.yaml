@@ -5,6 +5,10 @@ screen:
   brightness: 30
   timeout: 60
 icon:
+  image:
+    on: On.png
+    off: Off.png
+    blank: Blank.png
   color:
     on: "#FFFFFF"
     off: "#777777"

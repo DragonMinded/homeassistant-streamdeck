@@ -91,6 +91,7 @@ class StreamDeckDriver:
         self,
         deck: StreamDeck,
         font: str = "DejaVuSans.ttf",
+        icon_image: Tuple[str, str, str] = ("On.png", "Off.png", "Blank.png"),
         icon_color: Tuple[str, str] = ("#FFFFFF", "#777777"),
         fontsize: int = 14,
         brightness: int = 30,
@@ -103,6 +104,7 @@ class StreamDeckDriver:
             os.path.join(ASSETS_PATH, font), self.__height
         )
         self.__icon_colors = icon_color
+        self.__icon_images = icon_image
         self.__closed = False
         self.__timeout = timeout
         self.__lastbutton = time.time()
@@ -249,16 +251,16 @@ class StreamDeckDriver:
             or isinstance(self.__buttons[key], BlankButton)
         ):
             key_style = {
-                "icon": os.path.join(ASSETS_PATH, "Blank.png"),
+                "icon": os.path.join(ASSETS_PATH, self.__icon_images[2]),
                 "label": "",
-                "color": "#000000",
+                "color": "#FFFFFF",
             }
         else:
             state = self.__buttons[key].state
             key_style = {
                 "icon": os.path.join(
                     ASSETS_PATH,
-                    "{}.png".format("On" if state else "Off"),
+                    self.__icon_images[0] if state else self.__icon_images[1],
                 ),
                 "label": self.__buttons[key].label,
                 "color": self.__icon_colors[0] if state else self.__icon_colors[1],
@@ -325,6 +327,17 @@ class Config:
                 icon_color.get(False, icon_color.get("off", "#777777"))
             )
 
+            icon_image = icon.get("image", {})
+
+            # Same insane horse shit here as above.
+            self.icon_image_on = str(
+                icon_image.get(True, icon_image.get("on", "On.png"))
+            )
+            self.icon_image_off = str(
+                icon_image.get(False, icon_image.get("off", "Off.png"))
+            )
+            self.icon_image_blank = str(icon_image.get("blank", "Blank.png"))
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -365,6 +378,11 @@ if __name__ == "__main__":
             found_deck,
             font=config.font_face,
             fontsize=config.font_size,
+            icon_image=(
+                config.icon_image_on,
+                config.icon_image_off,
+                config.icon_image_blank,
+            ),
             icon_color=(config.icon_color_on, config.icon_color_off),
             brightness=config.screen_brightness,
             timeout=config.screen_timeout,
