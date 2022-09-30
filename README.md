@@ -16,7 +16,7 @@ Then, run it like the following:
 python3 driver.py --config config.yaml
 ```
 
-Don't forget to edit your config file to customize it for your own setup!
+Don't forget to edit your config file to customize it for your own setup! If you run into trouble connecting to a StreamDeck (such as getting a DLL error on Windows or a permission error on Linux), please see the streamdeck library setup instructions at https://python-elgato-streamdeck.readthedocs.io/en/stable/pages/backend_libusb_hidapi.html
 
 ## Config File Documentation
 
@@ -32,7 +32,7 @@ The brightness is a number between 0 and 100 that specifies the percent brightne
 
 ### Icon Options
 
-The icon images are the actual pictures that get drawn for an entity that is on, off or for a button that doesn't have an entity associated with it. You can customize this by specifying your own PNG images to use if you like. They will be scaled for you. The icon colors are the colors that will be used to tint the on and off images. By default, the on and off images use pure white and HTML colors are specified in order to tint them.  Note that if you choose instead to use full color images, you should set both the on and off color to `"#FFFFFF"` in order to stop tinting the images.
+The icon images are the actual pictures that get drawn for an entity that is on, off or for a button that doesn't have an entity associated with it. You can customize this by specifying your own PNG images to use if you like. They must live inside the `Assets/` folder, much like the font. They will be scaled for you. The icon colors are the colors that will be used to tint the on and off images. By default, the on and off images use pure white and HTML colors are specified in order to tint them.  Note that if you choose instead to use full color images, you should set both the on and off color to `"#FFFFFF"` in order to stop tinting the images.
 
 ### Home Assistant Options
 
