@@ -3,6 +3,7 @@ font:
   size: 14
 screen:
   brightness: 30
+  rotation: 0
   timeout: 60
 icon:
   image:

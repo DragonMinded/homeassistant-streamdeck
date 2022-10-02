@@ -95,6 +95,7 @@ class StreamDeckDriver:
         icon_color: Tuple[str, str] = ("#FFFFFF", "#777777"),
         fontsize: int = 14,
         brightness: int = 30,
+        rotation: int = 0,
         timeout: int = 60,
     ) -> None:
         self.deck: StreamDeck = deck
@@ -108,9 +109,19 @@ class StreamDeckDriver:
         self.__closed = False
         self.__timeout = timeout
         self.__lastbutton = time.time()
+        self.__rotation = rotation
+
+        # Double-check bounds, also allow negative rotation since its easy
+        # to convert to positive rotation
+        if self.__rotation not in {0, 90, 180, 270, -90, -180, -270}:
+            raise Exception(
+                f"Invalid rotation value {rotation}, must be a right angle!"
+            )
+        if self.__rotation < 0:
+            self.__rotation += 360
 
         # Set up a key change callback
-        deck.set_key_callback(self.key_change_callback)
+        deck.set_key_callback(self.__key_change_callback)
 
         # Default the brightness
         self.__brightness: int = brightness
@@ -153,7 +164,7 @@ class StreamDeckDriver:
 
     def refresh(self) -> None:
         for i in range(self.deck.key_count()):
-            self.update_key_image(i)
+            self.__update_key_image(i)
 
         if self.__timeout > 0 and ((self.__lastbutton + self.__timeout) < time.time()):
             # Screen timed out
@@ -173,7 +184,7 @@ class StreamDeckDriver:
         except TransportError:
             pass
 
-    def split_word(self, word: str) -> Tuple[str, str]:
+    def __split_word(self, word: str) -> Tuple[str, str]:
         tot = len(word)
         loc = int(len(word) / 2)
         sub = 0
@@ -189,7 +200,7 @@ class StreamDeckDriver:
         # Just split evenly
         return (word[:loc], word[loc:])
 
-    def get_wrapped_text(
+    def __get_wrapped_text(
         self, label_text: str, line_length: int
     ) -> List[Tuple[str, int]]:
         lines = [""]
@@ -206,14 +217,14 @@ class StreamDeckDriver:
                     lines.append(word)
                 else:
                     # There was nothing on the line, this word doesn't fit, so split it.
-                    w1, w2 = self.split_word(word)
+                    w1, w2 = self.__split_word(word)
 
                     lines[-1] = f"{lines[-1]} {w1}".strip()
                     lines.append(w2)
 
         return [(ln, self.__font.getlength(ln)) for ln in lines if ln]
 
-    def render_key_image(
+    def __render_key_image(
         self, icon_filename: str, icon_color: str, label_text: str
     ) -> StreamDeckImage:
         icon = Image.open(icon_filename)
@@ -225,7 +236,7 @@ class StreamDeckDriver:
 
         draw = ImageDraw.Draw(image)
 
-        lines = self.get_wrapped_text(label_text, image.width)
+        lines = self.__get_wrapped_text(label_text, image.width)
         numlines = len(lines)
         if numlines < 2:
             numlines = 2
@@ -242,13 +253,77 @@ class StreamDeckDriver:
                 fill="white",
             )
 
+        if self.__rotation != 0:
+            w, h = image.size
+            if w != h:
+                raise Exception("Unexpected non-square image?")
+
+            # The rotation is "backwards" because we are specifying the rotation
+            # of the entire screen, not the individual images.
+            image = image.rotate(self.__rotation, expand=False)
+
         return PILHelper.to_native_format(self.deck, image)
 
-    def update_key_image(self, key: int) -> None:
+    def __virtual_to_physical(self, virtual_key: int) -> int:
+        # Necessary because the StreamDeck library is untyped.
+        rows: int
+        cols: int
+
+        if self.__rotation == 0:
+            return virtual_key
+        elif self.__rotation == 90:
+            with self.deck:
+                rows, cols = self.deck.key_layout()
+
+            whichrow = (rows - 1) - (virtual_key % rows)
+            whichcol = int(virtual_key / rows)
+
+            return (cols * whichrow) + whichcol
+        elif self.__rotation == 180:
+            with self.deck:
+                return int(self.deck.key_count() - 1) - virtual_key
+        else:
+            with self.deck:
+                rows, cols = self.deck.key_layout()
+
+            whichrow = virtual_key % rows
+            whichcol = (cols - 1) - int(virtual_key / rows)
+
+            return (cols * whichrow) + whichcol
+
+    def __physical_to_virtual(self, physical_key: int) -> int:
+        # Necessary because the StreamDeck library is untyped.
+        rows: int
+        cols: int
+
+        if self.__rotation == 0:
+            return physical_key
+        elif self.__rotation == 90:
+            with self.deck:
+                rows, cols = self.deck.key_layout()
+
+            whichrow = int(physical_key / cols)
+            whichcol = physical_key % cols
+
+            return ((rows - 1) - whichrow) + (rows * whichcol)
+
+        elif self.__rotation == 180:
+            with self.deck:
+                return int(self.deck.key_count() - 1) - physical_key
+        else:
+            with self.deck:
+                rows, cols = self.deck.key_layout()
+
+            whichrow = int(physical_key / cols)
+            whichcol = physical_key % cols
+
+            return whichrow + (((cols - 1) - whichcol) * rows)
+
+    def __update_key_image(self, virtual_key: int) -> None:
         if (
-            key < 0
-            or key >= len(self.__buttons)
-            or isinstance(self.__buttons[key], BlankButton)
+            virtual_key < 0
+            or virtual_key >= len(self.__buttons)
+            or isinstance(self.__buttons[virtual_key], BlankButton)
         ):
             key_style = {
                 "icon": os.path.join(ASSETS_PATH, self.__icon_images[2]),
@@ -256,42 +331,45 @@ class StreamDeckDriver:
                 "color": "#FFFFFF",
             }
         else:
-            state = self.__buttons[key].state
+            state = self.__buttons[virtual_key].state
             key_style = {
                 "icon": os.path.join(
                     ASSETS_PATH,
                     self.__icon_images[0] if state else self.__icon_images[1],
                 ),
-                "label": self.__buttons[key].label,
+                "label": self.__buttons[virtual_key].label,
                 "color": self.__icon_colors[0] if state else self.__icon_colors[1],
             }
 
-        image = self.render_key_image(
+        image = self.__render_key_image(
             key_style["icon"], key_style["color"], key_style["label"]
         )
 
         try:
             with self.deck:
-                self.deck.set_key_image(key, image)
+                self.deck.set_key_image(self.__virtual_to_physical(virtual_key), image)
         except TransportError:
             pass
 
-    def key_change_callback(self, deck: StreamDeck, key: int, pressed: bool) -> None:
+    def __key_change_callback(
+        self, deck: StreamDeck, physical_key: int, pressed: bool
+    ) -> None:
         if deck is not self.deck:
             raise Exception("Logic error!")
         if not pressed:
             # Don't care about release actions
             return
+        virtual_key = self.__physical_to_virtual(physical_key)
 
         if self.__timeout > 0 and (self.__lastbutton + self.__timeout < time.time()):
             # Screen timed out, need to wake
             with self.deck:
                 self.deck.set_brightness(self.__brightness)
-        elif key >= 0 and key < len(self.buttons):
-            self.__buttons[key].state = not self.__buttons[key].state
+        elif virtual_key >= 0 and virtual_key < len(self.buttons):
+            self.__buttons[virtual_key].state = not self.__buttons[virtual_key].state
 
         self.__lastbutton = time.time()
-        self.update_key_image(key)
+        self.__update_key_image(virtual_key)
 
 
 class Config:
@@ -314,6 +392,7 @@ class Config:
             screen = yamlfile.get("screen", {})
             self.screen_brightness = int(screen.get("brightness", 30))
             self.screen_timeout = int(screen.get("timeout", 60))
+            self.screen_rotation = int(screen.get("rotation", 0))
 
             icon = yamlfile.get("icon", {})
             icon_color = icon.get("color", {})
@@ -385,6 +464,7 @@ if __name__ == "__main__":
             ),
             icon_color=(config.icon_color_on, config.icon_color_off),
             brightness=config.screen_brightness,
+            rotation=config.screen_rotation,
             timeout=config.screen_timeout,
         )
 

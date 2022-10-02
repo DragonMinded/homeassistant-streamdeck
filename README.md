@@ -28,7 +28,7 @@ The font face is the actual true type font that should be used for rendering ind
 
 ### Screen Options
 
-The brightness is a number between 0 and 100 that specifies the percent brightness that the StreamDeck should be set at. The timeout is a number in seconds that specifies how long to wait before blanking the screen. If you do not wish for this behavior, set the timeout to 0. Otherwise, the StreamDeck will go blank after the listed number of seconds.
+The brightness is a number between 0 and 100 that specifies the percent brightness that the StreamDeck should be set at. The timeout is a number in seconds that specifies how long to wait before blanking the screen. If you do not wish for this behavior, set the timeout to 0. Otherwise, the StreamDeck will go blank after the listed number of seconds. The rotation is the degrees clockwise that you have rotated the StreamDeck if you are mounting it in a non-standard way. You can specify 0, 90, 180 or 270, as well as -90, -180 and -270 to specify a counter-clockwise rotation. This software will always refer to the top left button from your perspective as the first button and lay out buttons left to right then top to bottom.
 
 ### Icon Options
 
@@ -75,5 +75,6 @@ icon:
     off: "#44739E"
 screen:
   brightness: 50
+  rotation: 0
   timeout: 60
 ```
