@@ -62,15 +62,18 @@ class HomeAssistantButton(Button):
             "Authorization": f"Bearer {self.token}",
             "content-type": "application/json",
         }
-        response = requests.get(url, headers=headers)
         try:
+            response = requests.get(url, headers=headers, timeout=3.0)
+            response.raise_for_status()
+
             data = response.json()
             if data.get("entity_id", None) != self.entity:
                 return None
 
             self.label = data.get("attributes", {}).get("friendly_name", self.label)
             return bool(data.get("state", "off").lower() == "on")
-        except Exception:
+        except Exception as e:
+            print(f"Failed to fetch {self.entity} state!\n{e}")
             return None
 
     @state.setter
@@ -83,7 +86,10 @@ class HomeAssistantButton(Button):
         request = {
             "entity_id": self.entity,
         }
-        requests.post(url, headers=headers, json=request)
+        try:
+            requests.post(url, headers=headers, json=request, timeout=3.0)
+        except Exception as e:
+            print(f"Failed to update {self.entity} state!\n{e}")
 
 
 class StreamDeckDriver:
