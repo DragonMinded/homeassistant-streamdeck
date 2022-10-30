@@ -114,6 +114,7 @@ class StreamDeckDriver:
         self.__icon_images = icon_image
         self.__closed = False
         self.__timeout = timeout
+        self.__blanked = False
         self.__lastbutton = time.time()
         self.__rotation = rotation
 
@@ -169,13 +170,16 @@ class StreamDeckDriver:
         self.refresh()
 
     def refresh(self) -> None:
-        for i in range(self.deck.key_count()):
-            self.__update_key_image(i)
-
         if self.__timeout > 0 and ((self.__lastbutton + self.__timeout) < time.time()):
-            # Screen timed out
+            # Screen timed out, need to turn off backlight and also blank images
+            # in case this is a model that still shows some graphics when set to
+            # 0 brightness.
             with self.deck:
                 self.deck.set_brightness(0)
+                self.__blanked = True
+
+        for i in range(self.deck.key_count()):
+            self.__update_key_image(i)
 
     def close(self) -> None:
         self.__closed = True
@@ -326,7 +330,17 @@ class StreamDeckDriver:
             return whichrow + (((cols - 1) - whichcol) * rows)
 
     def __update_key_image(self, virtual_key: int) -> None:
-        if (
+        if self.__blanked:
+            # Special case for when we should display nothing, for cases where
+            # setting brightness to 0 does not actually fully blank the screen.
+            # We rely on blending with all black to set all pixels to zero. Kinda
+            # a hack but it works.
+            key_style = {
+                "icon": os.path.join(ASSETS_PATH, self.__icon_images[2]),
+                "label": "",
+                "color": "#000000",
+            }
+        elif (
             virtual_key < 0
             or virtual_key >= len(self.__buttons)
             or isinstance(self.__buttons[virtual_key], BlankButton)
@@ -371,7 +385,20 @@ class StreamDeckDriver:
             # Screen timed out, need to wake
             with self.deck:
                 self.deck.set_brightness(self.__brightness)
-        elif virtual_key >= 0 and virtual_key < len(self.buttons):
+                self.__blanked = False
+
+            # Need to redraw all buttons now that we woke up since we manually
+            # blanked the screen as well as set the brightness down.
+            self.__lastbutton = time.time()
+            for i in range(self.deck.key_count()):
+                self.__update_key_image(i)
+
+            return
+
+        if virtual_key >= 0 and virtual_key < len(self.buttons):
+            # Update the state given that this is a valid button press. This will
+            # involve making a callback inside the button class possibly to change
+            # a remote state.
             self.__buttons[virtual_key].state = not self.__buttons[virtual_key].state
 
         self.__lastbutton = time.time()
