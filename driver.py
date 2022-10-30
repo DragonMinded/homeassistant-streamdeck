@@ -5,7 +5,7 @@ import requests
 import threading
 import time
 import yaml
-from typing import Any, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from PIL import Image, ImageDraw, ImageFont, ImageChops  # type: ignore
 from StreamDeck.DeviceManager import DeviceManager  # type: ignore
@@ -106,6 +106,7 @@ class StreamDeckDriver:
     ) -> None:
         self.deck: StreamDeck = deck
         self.__buttons: List[Button] = []
+        self.__states: Dict[int, Optional[bool]] = {}
         self.__height: int = fontsize
         self.__font: ImageFont.ImageFont = ImageFont.truetype(
             os.path.join(ASSETS_PATH, font), self.__height
@@ -329,7 +330,9 @@ class StreamDeckDriver:
 
             return whichrow + (((cols - 1) - whichcol) * rows)
 
-    def __update_key_image(self, virtual_key: int) -> None:
+    def __update_key_image(
+        self, virtual_key: int, *, cached_only: bool = False
+    ) -> None:
         if self.__blanked:
             # Special case for when we should display nothing, for cases where
             # setting brightness to 0 does not actually fully blank the screen.
@@ -340,6 +343,11 @@ class StreamDeckDriver:
                 "label": "",
                 "color": "#000000",
             }
+
+            # We also want to keep a running tally of the cached state so if something
+            # changes while we're blanked we display it instantly on wake.
+            if not cached_only:
+                self.__states[virtual_key] = self.__buttons[virtual_key].state
         elif (
             virtual_key < 0
             or virtual_key >= len(self.__buttons)
@@ -351,7 +359,11 @@ class StreamDeckDriver:
                 "color": "#FFFFFF",
             }
         else:
-            state = self.__buttons[virtual_key].state
+            if cached_only:
+                state = self.__states.get(virtual_key, None)
+            else:
+                self.__states[virtual_key] = state = self.__buttons[virtual_key].state
+
             key_style = {
                 "icon": os.path.join(
                     ASSETS_PATH,
@@ -388,10 +400,11 @@ class StreamDeckDriver:
                 self.__blanked = False
 
             # Need to redraw all buttons now that we woke up since we manually
-            # blanked the screen as well as set the brightness down.
+            # blanked the screen as well as set the brightness down. Use the last
+            # cached value so that we can display instantly.
             self.__lastbutton = time.time()
             for i in range(self.deck.key_count()):
-                self.__update_key_image(i)
+                self.__update_key_image(i, cached_only=True)
 
             return
 
