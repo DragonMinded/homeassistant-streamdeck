@@ -104,6 +104,21 @@ class StreamDeckDriver:
         rotation: int = 0,
         timeout: int = 60,
     ) -> None:
+        # We want to enable or disable quirks based on the firmware revision of the
+        # deck in question as well as the model number. This is sketchy business because
+        # we don't have a complete list of values, so we instead do an opt-in style instead
+        # of a version number comparison style.
+        if deck.deck_type() == "Stream Deck XL":
+            # Brightness quirk is based on the firmware revision. The latest firmware
+            # doesn't have this bug, but others might and I don't know what revisions exist.
+            self.__brightness_quirk = {
+                "1.01.000": False,
+                "1.00.010": True,
+            }.get(deck.get_firmware_version(), True)
+        else:
+            # No known quirks modes for these other deck types right now.
+            self.__brightness_quirk = False
+
         self.deck: StreamDeck = deck
         self.__buttons: List[Button] = []
         self.__states: Dict[int, Optional[bool]] = {}
@@ -180,7 +195,7 @@ class StreamDeckDriver:
             # Screen timed out, need to turn off backlight and also blank images
             # in case this is a model that still shows some graphics when set to
             # 0 brightness.
-            cache_only = True
+            cache_only = self.__brightness_quirk
             with self.deck:
                 self.deck.set_brightness(0)
                 self.__blanked = True
@@ -351,7 +366,7 @@ class StreamDeckDriver:
             or isinstance(self.__buttons[virtual_key], BlankButton)
         )
 
-        if self.__blanked:
+        if self.__blanked and self.__brightness_quirk:
             # Special case for when we should display nothing, for cases where
             # setting brightness to 0 does not actually fully blank the screen.
             # We rely on blending with all black to set all pixels to zero. Kinda
@@ -413,12 +428,13 @@ class StreamDeckDriver:
                 self.deck.set_brightness(self.__brightness)
                 self.__blanked = False
 
-            # Need to redraw all buttons now that we woke up since we manually
-            # blanked the screen as well as set the brightness down. Use the last
-            # cached value so that we can display instantly.
             self.__lastbutton = time.time()
-            for i in range(self.deck.key_count()):
-                self.__update_key_image(i, cached_only=True)
+            if self.__brightness_quirk:
+                # Need to redraw all buttons now that we woke up since we manually
+                # blanked the screen as well as set the brightness down. Use the last
+                # cached value so that we can display instantly.
+                for i in range(self.deck.key_count()):
+                    self.__update_key_image(i, cached_only=True)
 
             return
 

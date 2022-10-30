@@ -78,3 +78,7 @@ screen:
   rotation: 0
   timeout: 60
 ```
+
+## Quirks
+
+Some Stream Decks running older firmwares will not fully blank the screen when the brightness is set to zero. There's a workaround for this in software, but you will still see a faint glow from the blanked buttons. If this is undesirable then make sure your firmware is at least at 1.01.000 (the current latest firmware for the Stream Deck XL as of this writing). This seems to be doable only with the official software at this point.
