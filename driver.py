@@ -107,6 +107,7 @@ class StreamDeckDriver:
         self.deck: StreamDeck = deck
         self.__buttons: List[Button] = []
         self.__states: Dict[int, Optional[bool]] = {}
+        self.__images: Dict[str, StreamDeckImage] = {}
         self.__height: int = fontsize
         self.__font: ImageFont.ImageFont = ImageFont.truetype(
             os.path.join(ASSETS_PATH, font), self.__height
@@ -238,42 +239,47 @@ class StreamDeckDriver:
     def __render_key_image(
         self, icon_filename: str, icon_color: str, label_text: str
     ) -> StreamDeckImage:
-        icon = Image.open(icon_filename)
-        iconimage = PILHelper.create_scaled_image(
-            self.deck, icon, margins=[0, 0, 20, 0]
-        )
-        colorimage = Image.new("RGB", iconimage.size, icon_color)
-        image = ImageChops.multiply(iconimage, colorimage)
+        cache_key = f"{icon_filename}-{icon_color}-{label_text}-{self.__rotation}"
 
-        draw = ImageDraw.Draw(image)
-
-        lines = self.__get_wrapped_text(label_text, image.width)
-        numlines = len(lines)
-        if numlines < 2:
-            numlines = 2
-
-        for lno, (line, width) in enumerate(lines):
-            draw.text(
-                (
-                    (image.width - width) / 2,
-                    image.height - (5 + (self.__height * (numlines - lno))),
-                ),
-                text=line,
-                font=self.__font,
-                anchor="lt",
-                fill="white",
+        if cache_key not in self.__images:
+            icon = Image.open(icon_filename)
+            iconimage = PILHelper.create_scaled_image(
+                self.deck, icon, margins=[0, 0, 20, 0]
             )
+            colorimage = Image.new("RGB", iconimage.size, icon_color)
+            image = ImageChops.multiply(iconimage, colorimage)
 
-        if self.__rotation != 0:
-            w, h = image.size
-            if w != h:
-                raise Exception("Unexpected non-square image?")
+            draw = ImageDraw.Draw(image)
 
-            # The rotation is "backwards" because we are specifying the rotation
-            # of the entire screen, not the individual images.
-            image = image.rotate(self.__rotation, expand=False)
+            lines = self.__get_wrapped_text(label_text, image.width)
+            numlines = len(lines)
+            if numlines < 2:
+                numlines = 2
 
-        return PILHelper.to_native_format(self.deck, image)
+            for lno, (line, width) in enumerate(lines):
+                draw.text(
+                    (
+                        (image.width - width) / 2,
+                        image.height - (5 + (self.__height * (numlines - lno))),
+                    ),
+                    text=line,
+                    font=self.__font,
+                    anchor="lt",
+                    fill="white",
+                )
+
+            if self.__rotation != 0:
+                w, h = image.size
+                if w != h:
+                    raise Exception("Unexpected non-square image?")
+
+                # The rotation is "backwards" because we are specifying the rotation
+                # of the entire screen, not the individual images.
+                image = image.rotate(self.__rotation, expand=False)
+
+            self.__images[cache_key] = PILHelper.to_native_format(self.deck, image)
+
+        return self.__images[cache_key]
 
     def __virtual_to_physical(self, virtual_key: int) -> int:
         # Necessary because the StreamDeck library is untyped.
