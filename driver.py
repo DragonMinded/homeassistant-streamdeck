@@ -333,6 +333,13 @@ class StreamDeckDriver:
     def __update_key_image(
         self, virtual_key: int, *, cached_only: bool = False
     ) -> None:
+        # Figure out if this is a registered key or a blank key.
+        valid_key = not (
+            virtual_key < 0
+            or virtual_key >= len(self.__buttons)
+            or isinstance(self.__buttons[virtual_key], BlankButton)
+        )
+
         if self.__blanked:
             # Special case for when we should display nothing, for cases where
             # setting brightness to 0 does not actually fully blank the screen.
@@ -346,13 +353,9 @@ class StreamDeckDriver:
 
             # We also want to keep a running tally of the cached state so if something
             # changes while we're blanked we display it instantly on wake.
-            if not cached_only:
+            if valid_key and not cached_only:
                 self.__states[virtual_key] = self.__buttons[virtual_key].state
-        elif (
-            virtual_key < 0
-            or virtual_key >= len(self.__buttons)
-            or isinstance(self.__buttons[virtual_key], BlankButton)
-        ):
+        elif not valid_key:
             key_style = {
                 "icon": os.path.join(ASSETS_PATH, self.__icon_images[2]),
                 "label": "",
