@@ -172,16 +172,21 @@ class StreamDeckDriver:
         self.refresh()
 
     def refresh(self) -> None:
+        # When we blank the screen we want it to be fast, since you can "see"
+        # the redraw times if we refresh every state along the way.
+        cache_only = False
+
         if self.__timeout > 0 and ((self.__lastbutton + self.__timeout) < time.time()):
             # Screen timed out, need to turn off backlight and also blank images
             # in case this is a model that still shows some graphics when set to
             # 0 brightness.
+            cache_only = True
             with self.deck:
                 self.deck.set_brightness(0)
                 self.__blanked = True
 
         for i in range(self.deck.key_count()):
-            self.__update_key_image(i)
+            self.__update_key_image(i, cached_only=cache_only)
 
     def close(self) -> None:
         self.__closed = True
