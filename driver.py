@@ -114,6 +114,7 @@ class StreamDeckDriver:
             self.__brightness_quirk = {
                 "1.01.000": False,
                 "1.00.010": True,
+                "1.00.006": False,
             }.get(deck.get_firmware_version(), True)
         else:
             # No known quirks modes for these other deck types right now.
