@@ -32,11 +32,15 @@ The brightness is a number between 0 and 100 that specifies the percent brightne
 
 ### Icon Options
 
-The icon images are the actual pictures that get drawn for an entity that is on, off or for a button that doesn't have an entity associated with it. You can customize this by specifying your own PNG images to use if you like. They must live inside the `Assets/` folder, much like the font. They will be scaled for you. The icon colors are the colors that will be used to tint the on and off images. By default, the on and off images use pure white and HTML colors are specified in order to tint them.  Note that if you choose instead to use full color images, you should set both the on and off color to `"#FFFFFF"` in order to stop tinting the images.
+The icon images are the actual pictures that get drawn for an entity that is on, off or for a button that doesn't have an entity associated with it. You can customize this by specifying your own PNG images to use if you like. They must live inside the `Assets/` folder, much like the font. They will be scaled for you. The icon colors are the colors that will be used to tint the on and off images as well as the blank image. By default, the on and off images use pure white and HTML colors are specified in order to tint them.  Note that if you choose instead to use full color images, you should set both the on and off color to `"#FFFFFF"` in order to stop tinting the images.
+
+If an MDI section is specified in the configuration file, then MDI icons as specified in your entity configuration on your Home Assistant instance will be used instead of icons in your assets folder. If you want to use a custom set of icons for the on and off states, delete the MDI section in your configuration. Otherwise, the same icons that appear on your Home Assistant. The icons will be rendered with the same on and off colors as icons found in the assets folder.
 
 ### Home Assistant Options
 
-The URL should be the access URL that you type into a browser in order to connect to your Home Assistant installation. It should start with `http://` or `https://` but you can choose to use the internal or external URL as long as the device running this software can connect to it through the local network. If you place the device on a separate network, then you should use the public URL. The token is a Long-Lived Access Token that you have generated to authorize this software to connect to your Home Assistant installation. You can generate one by going to your profile in a web browser and scrolling to the bottom. Finally, the entities are a list of entity IDs in Home Assistant that you want to display and control on the StreamDeck. You can find these entity IDs in the Settings->Devices and Services->Entities panel under the "Entity ID" column. Currently this only supports switch entities. If you want to add a spacer to a StreamDeck button you can add a blank line to the list of entities.
+The URL should be the access URL that you type into a browser in order to connect to your Home Assistant installation. It should start with `http://` or `https://` but you can choose to use the internal or external URL as long as the device running this software can connect to it through the local network. If you place the device on a separate network, then you should use the public URL. The token is a Long-Lived Access Token that you have generated to authorize this software to connect to your Home Assistant installation. You can generate one by going to your profile in a web browser and scrolling to the bottom. Finally, the entities are a list of entity IDs in Home Assistant that you want to display and control on the StreamDeck. You can find these entity IDs in the Settings->Devices and Services->Entities panel under the "Entity ID" column. Currently this only supports switch entities and blanks. If you want to add a spacer to a StreamDeck button you can add a blank line to the list of entities.
+
+If you wish to use a graphic with a particular spacer instead of the configured blank image, you can do so with a special syntax. Assuming you have MDI icons configured properly, you can select a particular MDI icon by adding an entity prefixed with "mdi:". For instance, to show the Xbox logo in a blank spot, add an entity named `"mdi:microsoft-xbox"` to your entities list. Similarly, if you wish to use a graphic file, you can add an entity prefixed with "image:". For instance, to show a graphic in "Test.png" inside the `Assets/` directory, add an entity named `"image:Test.png"` to your entities list. Note that these images will be colored using the blank color as specified in the icon options.
 
 ### Example Config File
 
@@ -73,6 +77,7 @@ icon:
   color:
     on: "#FDD835"
     off: "#44739E"
+    blank: "#FFFFFF"
 screen:
   brightness: 50
   rotation: 0
@@ -81,4 +86,4 @@ screen:
 
 ## Quirks
 
-Some Stream Decks running older firmwares will not fully blank the screen when the brightness is set to zero. There's a workaround for this in software, but you will still see a faint glow from the blanked buttons. If this is undesirable then make sure your firmware is at least at 1.01.000 (the current latest firmware for the Stream Deck XL as of this writing). This seems to be doable only with the official software at this point.
+Some Stream Decks running older firmwares will not fully blank the screen when the brightness is set to zero. There's a workaround for this in software, but you will still see a faint glow from the blanked buttons. If this is undesirable then make sure your firmware is at least at 1.01.000 (the current latest firmware for the Stream Deck XL as of this writing). The firmware seems to be upgradeable only with the official software at this point.
