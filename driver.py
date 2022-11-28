@@ -7,6 +7,7 @@ import time
 import yaml
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+import tinycss2  # type: ignore
 from PIL import Image, ImageDraw, ImageFont, ImageChops  # type: ignore
 from StreamDeck.DeviceManager import DeviceManager  # type: ignore
 from StreamDeck.ImageHelpers import PILHelper  # type: ignore
@@ -22,9 +23,29 @@ StreamDeck = Any
 StreamDeckImage = Any
 
 
+class IconColor:
+    def __init__(self, *, on: str, off: str) -> None:
+        self.on = on
+        self.off = off
+
+
+class IconImage:
+    def __init__(self, *, on: str, off: str, blank: str) -> None:
+        self.on = on
+        self.off = off
+        self.blank = blank
+
+
+class IconMDI:
+    def __init__(self, *, css: Optional[str], face: Optional[str]) -> None:
+        self.css = css
+        self.face = face
+
+
 class Button:
     def __init__(self, label: str) -> None:
-        self.label = label
+        self.label: str = label
+        self.mdi: Optional[str] = None
 
     @property
     def state(self) -> Optional[bool]:
@@ -70,6 +91,9 @@ class HomeAssistantButton(Button):
             if data.get("entity_id", None) != self.entity:
                 return None
 
+            icon = data.get("attributes", {}).get("icon", None) or ""
+            if icon[:4].lower() == "mdi:":
+                self.mdi = f"mdi-{icon[4:].lower()}"
             self.label = data.get("attributes", {}).get("friendly_name", self.label)
             return bool(data.get("state", "off").lower() == "on")
         except Exception as e:
@@ -97,8 +121,11 @@ class StreamDeckDriver:
         self,
         deck: StreamDeck,
         font: str = "DejaVuSans.ttf",
-        icon_image: Tuple[str, str, str] = ("On.png", "Off.png", "Blank.png"),
-        icon_color: Tuple[str, str] = ("#FFFFFF", "#777777"),
+        icon_mdi: IconMDI = IconMDI(css=None, face=None),
+        icon_image: IconImage = IconImage(
+            on="On.png", off="Off.png", blank="Blank.png"
+        ),
+        icon_color: IconColor = IconColor(on="#FFFFFF", off="#777777"),
         fontsize: int = 14,
         brightness: int = 30,
         rotation: int = 0,
@@ -151,6 +178,63 @@ class StreamDeckDriver:
         # Default the brightness
         self.__brightness: int = brightness
         self.brightness = brightness
+
+        # Parse and set up MDI if provided
+        self.__mdi_mapping: Dict[str, str] = {}
+        self.__mdi_font: Optional[ImageFont.ImageFont] = None
+
+        if icon_mdi.css and icon_mdi.face:
+            actual_css = os.path.join(ASSETS_PATH, icon_mdi.css)
+            mapping: Dict[str, str] = {}
+
+            with open(actual_css, "rb") as bfp:
+                data = bfp.read()
+            rules, _ = tinycss2.parse_stylesheet_bytes(data)
+            for rule in rules:
+                if not isinstance(rule, tinycss2.ast.QualifiedRule):
+                    continue
+
+                # Should be in the form of ".mdi-xxx::before"
+                if len(rule.prelude) < 2:
+                    continue
+
+                if not isinstance(rule.prelude[0], tinycss2.ast.LiteralToken):
+                    continue
+                if rule.prelude[0].value != ".":
+                    continue
+
+                if not isinstance(rule.prelude[1], tinycss2.ast.IdentToken):
+                    continue
+                token = rule.prelude[1].lower_value
+                if token[:4] != "mdi-":
+                    continue
+
+                content = [
+                    x.value
+                    for x in rule.content
+                    if isinstance(
+                        x,
+                        (
+                            tinycss2.ast.IdentToken,
+                            tinycss2.ast.LiteralToken,
+                            tinycss2.ast.StringToken,
+                        ),
+                    )
+                ]
+
+                # Should be in the form of "content: 'unicode';"
+                if len(content) != 4:
+                    continue
+                if content[0] != "content" or content[1] != ":" or content[3] != ";":
+                    continue
+
+                # We have our unicode mapping.
+                mapping[token] = content[2]
+
+            self.__mdi_mapping = mapping
+            self.__mdi_font = ImageFont.ImageFont = ImageFont.truetype(
+                os.path.join(ASSETS_PATH, icon_mdi.face), 64
+            )
 
         # Render all buttons
         self.refresh()
@@ -234,14 +318,14 @@ class StreamDeckDriver:
         return (word[:loc], word[loc:])
 
     def __get_wrapped_text(
-        self, label_text: str, line_length: int
+        self, font: ImageFont.ImageFont, label_text: str, line_length: int
     ) -> List[Tuple[str, int]]:
         lines = [""]
         for word in label_text.split():
             oldline = lines[-1].strip()
             line = f"{lines[-1]} {word}".strip()
 
-            if self.__font.getlength(line) <= line_length:
+            if font.getlength(line) <= line_length:
                 # We have enough room to add this word to the line.
                 lines[-1] = line
             else:
@@ -255,7 +339,7 @@ class StreamDeckDriver:
                     lines[-1] = f"{lines[-1]} {w1}".strip()
                     lines.append(w2)
 
-        return [(ln, self.__font.getlength(ln)) for ln in lines if ln]
+        return [(ln, font.getlength(ln)) for ln in lines if ln]
 
     def __render_key_image(
         self, icon_filename: str, icon_color: str, label_text: str
@@ -263,16 +347,37 @@ class StreamDeckDriver:
         cache_key = f"{icon_filename}-{icon_color}-{label_text}-{self.__rotation}"
 
         if cache_key not in self.__images:
-            icon = Image.open(icon_filename)
-            iconimage = PILHelper.create_scaled_image(
-                self.deck, icon, margins=[0, 0, 20, 0]
-            )
-            colorimage = Image.new("RGB", iconimage.size, icon_color)
-            image = ImageChops.multiply(iconimage, colorimage)
+            # First, draw the icon.
+            if icon_filename[:4] == "mdi:":
+                icon = Image.new("RGB", (64, 64))
+                image = PILHelper.create_scaled_image(
+                    self.deck, icon, margins=[0, 0, 20, 0]
+                )
+
+                # We control this, so we don't care about anything other than
+                # the first line.
+                text = icon_filename[4:]
+                widths = self.__get_wrapped_text(self.__mdi_font, text, image.width)
+
+                mdi_draw = ImageDraw.Draw(image)
+                mdi_draw.text(
+                    ((image.width - widths[0][1]) / 2, 0),
+                    text=icon_filename[4:],
+                    anchor="lt",
+                    font=self.__mdi_font,
+                    fill=icon_color,
+                )
+            else:
+                icon = Image.open(icon_filename)
+                iconimage = PILHelper.create_scaled_image(
+                    self.deck, icon, margins=[0, 0, 20, 0]
+                )
+                colorimage = Image.new("RGB", iconimage.size, icon_color)
+                image = ImageChops.multiply(iconimage, colorimage)
 
             draw = ImageDraw.Draw(image)
 
-            lines = self.__get_wrapped_text(label_text, image.width)
+            lines = self.__get_wrapped_text(self.__font, label_text, image.width)
             numlines = len(lines)
             if numlines < 2:
                 numlines = 2
@@ -373,7 +478,7 @@ class StreamDeckDriver:
             # We rely on blending with all black to set all pixels to zero. Kinda
             # a hack but it works.
             key_style = {
-                "icon": os.path.join(ASSETS_PATH, self.__icon_images[2]),
+                "icon": os.path.join(ASSETS_PATH, self.__icon_images.blank),
                 "label": "",
                 "color": "#000000",
             }
@@ -384,23 +489,35 @@ class StreamDeckDriver:
                 self.__states[virtual_key] = self.__buttons[virtual_key].state
         elif not valid_key:
             key_style = {
-                "icon": os.path.join(ASSETS_PATH, self.__icon_images[2]),
+                "icon": os.path.join(ASSETS_PATH, self.__icon_images.blank),
                 "label": "",
                 "color": "#FFFFFF",
             }
         else:
+            actual_button = self.__buttons[virtual_key]
             if cached_only:
                 state = self.__states.get(virtual_key, None)
             else:
-                self.__states[virtual_key] = state = self.__buttons[virtual_key].state
+                self.__states[virtual_key] = state = actual_button.state
+
+            if (
+                self.__mdi_font is not None
+                and actual_button.mdi is not None
+                and actual_button.mdi in self.__mdi_mapping
+            ):
+                # MDI icon
+                icon = f"mdi:{self.__mdi_mapping[actual_button.mdi]}"
+            else:
+                # Normal icon fallback
+                icon = os.path.join(
+                    ASSETS_PATH,
+                    self.__icon_images.on if state else self.__icon_images.off,
+                )
 
             key_style = {
-                "icon": os.path.join(
-                    ASSETS_PATH,
-                    self.__icon_images[0] if state else self.__icon_images[1],
-                ),
-                "label": self.__buttons[virtual_key].label,
-                "color": self.__icon_colors[0] if state else self.__icon_colors[1],
+                "icon": icon,
+                "label": actual_button.label,
+                "color": self.__icon_colors.on if state else self.__icon_colors.off,
             }
 
         image = self.__render_key_image(
@@ -494,6 +611,10 @@ class Config:
             )
             self.icon_image_blank = str(icon_image.get("blank", "Blank.png"))
 
+            icon_mdi = icon.get("mdi", {})
+            self.icon_mdi_css: Optional[str] = icon_mdi.get("css", None)
+            self.icon_mdi_face: Optional[str] = icon_mdi.get("face", None)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
@@ -534,12 +655,16 @@ if __name__ == "__main__":
             found_deck,
             font=config.font_face,
             fontsize=config.font_size,
-            icon_image=(
-                config.icon_image_on,
-                config.icon_image_off,
-                config.icon_image_blank,
+            icon_mdi=IconMDI(
+                css=config.icon_mdi_css,
+                face=config.icon_mdi_face,
             ),
-            icon_color=(config.icon_color_on, config.icon_color_off),
+            icon_image=IconImage(
+                on=config.icon_image_on,
+                off=config.icon_image_off,
+                blank=config.icon_image_blank,
+            ),
+            icon_color=IconColor(on=config.icon_color_on, off=config.icon_color_off),
             brightness=config.screen_brightness,
             rotation=config.screen_rotation,
             timeout=config.screen_timeout,

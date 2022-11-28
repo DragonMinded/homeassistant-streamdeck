@@ -6,6 +6,9 @@ screen:
   rotation: 0
   timeout: 60
 icon:
+  mdi:
+    css: materialdesignicons.css
+    face: materialdesignicons-webfont.ttf
   image:
     on: On.png
     off: Off.png
