@@ -45,7 +45,7 @@ class IconMDI:
 class Button:
     def __init__(self, label: str) -> None:
         self.label: str = label
-        self.mdi: Optional[str] = None
+        self.icon: Optional[str] = None
 
     @property
     def state(self) -> Optional[bool]:
@@ -93,7 +93,7 @@ class HomeAssistantButton(Button):
 
             icon = data.get("attributes", {}).get("icon", None) or ""
             if icon[:4].lower() == "mdi:":
-                self.mdi = f"mdi-{icon[4:].lower()}"
+                self.icon = icon.lower()
             self.label = data.get("attributes", {}).get("friendly_name", self.label)
             return bool(data.get("state", "off").lower() == "on")
         except Exception as e:
@@ -229,7 +229,7 @@ class StreamDeckDriver:
                     continue
 
                 # We have our unicode mapping.
-                mapping[token] = content[2]
+                mapping[f"mdi:{token[4:]}"] = content[2]
 
             self.__mdi_mapping = mapping
             self.__mdi_font = ImageFont.ImageFont = ImageFont.truetype(
@@ -356,13 +356,13 @@ class StreamDeckDriver:
 
                 # We control this, so we don't care about anything other than
                 # the first line.
-                text = icon_filename[4:]
+                text = self.__mdi_mapping[icon_filename]
                 widths = self.__get_wrapped_text(self.__mdi_font, text, image.width)
 
                 mdi_draw = ImageDraw.Draw(image)
                 mdi_draw.text(
                     ((image.width - widths[0][1]) / 2, 0),
-                    text=icon_filename[4:],
+                    text=text,
                     anchor="lt",
                     font=self.__mdi_font,
                     fill=icon_color,
@@ -488,8 +488,26 @@ class StreamDeckDriver:
             if valid_key and not cached_only:
                 self.__states[virtual_key] = self.__buttons[virtual_key].state
         elif not valid_key:
+            # Blank buttons can still have images associated with them.
+            try:
+                actual_button = self.__buttons[virtual_key]
+                if (
+                    self.__mdi_font is not None
+                    and actual_button.icon is not None
+                    and actual_button.icon in self.__mdi_mapping
+                ):
+                    button_image = actual_button.icon
+                else:
+                    button_image = None
+
+            except (KeyError, IndexError):
+                button_image = None
+
             key_style = {
-                "icon": os.path.join(ASSETS_PATH, self.__icon_images.blank),
+                "icon": os.path.join(
+                    ASSETS_PATH,
+                    button_image or self.__icon_images.blank,
+                ),
                 "label": "",
                 "color": "#FFFFFF",
             }
@@ -502,13 +520,13 @@ class StreamDeckDriver:
 
             if (
                 self.__mdi_font is not None
-                and actual_button.mdi is not None
-                and actual_button.mdi in self.__mdi_mapping
+                and actual_button.icon is not None
+                and actual_button.icon in self.__mdi_mapping
             ):
                 # MDI icon
-                icon = f"mdi:{self.__mdi_mapping[actual_button.mdi]}"
+                icon = actual_button.icon
             else:
-                # Normal icon fallback
+                # Normal icon path
                 icon = os.path.join(
                     ASSETS_PATH,
                     self.__icon_images.on if state else self.__icon_images.off,
