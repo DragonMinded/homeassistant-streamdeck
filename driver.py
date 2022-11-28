@@ -24,9 +24,10 @@ StreamDeckImage = Any
 
 
 class IconColor:
-    def __init__(self, *, on: str, off: str) -> None:
+    def __init__(self, *, on: str, off: str, blank: str) -> None:
         self.on = on
         self.off = off
+        self.blank = blank
 
 
 class IconImage:
@@ -42,10 +43,17 @@ class IconMDI:
         self.face = face
 
 
+class KeyStyle:
+    def __init__(self, *, icon: str, label: Optional[str], color: str) -> None:
+        self.icon = icon
+        self.label = label
+        self.color = color
+
+
 class Button:
-    def __init__(self, label: str) -> None:
+    def __init__(self, label: str, icon: Optional[str]) -> None:
         self.label: str = label
-        self.icon: Optional[str] = None
+        self.icon: Optional[str] = icon
 
     @property
     def state(self) -> Optional[bool]:
@@ -57,8 +65,8 @@ class Button:
 
 
 class BlankButton(Button):
-    def __init__(self) -> None:
-        super().__init__("")
+    def __init__(self, icon: Optional[str] = None) -> None:
+        super().__init__("", icon)
 
     @property
     def state(self) -> Optional[bool]:
@@ -71,7 +79,7 @@ class BlankButton(Button):
 
 class HomeAssistantButton(Button):
     def __init__(self, uri: str, token: str, entity: str) -> None:
-        super().__init__(entity)
+        super().__init__(entity, None)
         self.uri = uri + ("/" if uri[-1] != "/" else "")
         self.token = token
         self.entity = entity
@@ -125,7 +133,7 @@ class StreamDeckDriver:
         icon_image: IconImage = IconImage(
             on="On.png", off="Off.png", blank="Blank.png"
         ),
-        icon_color: IconColor = IconColor(on="#FFFFFF", off="#777777"),
+        icon_color: IconColor = IconColor(on="#FFFFFF", off="#777777", blank="#555555"),
         fontsize: int = 14,
         brightness: int = 30,
         rotation: int = 0,
@@ -317,9 +325,15 @@ class StreamDeckDriver:
         # Just split evenly
         return (word[:loc], word[loc:])
 
+    def __get_font_params(
+        self, font: ImageFont.ImageFont, line: str
+    ) -> Tuple[int, int]:
+        left, top, right, bottom = font.getbbox(line)
+        return (abs(right - left), abs(bottom - top))
+
     def __get_wrapped_text(
         self, font: ImageFont.ImageFont, label_text: str, line_length: int
-    ) -> List[Tuple[str, int]]:
+    ) -> List[Tuple[str, int, int]]:
         lines = [""]
         for word in label_text.split():
             oldline = lines[-1].strip()
@@ -339,10 +353,10 @@ class StreamDeckDriver:
                     lines[-1] = f"{lines[-1]} {w1}".strip()
                     lines.append(w2)
 
-        return [(ln, font.getlength(ln)) for ln in lines if ln]
+        return [(ln, *self.__get_font_params(font, ln)) for ln in lines if ln]
 
     def __render_key_image(
-        self, icon_filename: str, icon_color: str, label_text: str
+        self, icon_filename: str, icon_color: str, label_text: Optional[str]
     ) -> StreamDeckImage:
         cache_key = f"{icon_filename}-{icon_color}-{label_text}-{self.__rotation}"
 
@@ -361,7 +375,10 @@ class StreamDeckDriver:
 
                 mdi_draw = ImageDraw.Draw(image)
                 mdi_draw.text(
-                    ((image.width - widths[0][1]) / 2, 0),
+                    (
+                        (image.width - widths[0][1]) / 2,
+                        (image.height - widths[0][2]) / 2 if label_text is None else 0,
+                    ),
                     text=text,
                     anchor="lt",
                     font=self.__mdi_font,
@@ -377,22 +394,23 @@ class StreamDeckDriver:
 
             draw = ImageDraw.Draw(image)
 
-            lines = self.__get_wrapped_text(self.__font, label_text, image.width)
-            numlines = len(lines)
-            if numlines < 2:
-                numlines = 2
+            if label_text is not None:
+                lines = self.__get_wrapped_text(self.__font, label_text, image.width)
+                numlines = len(lines)
+                if numlines < 2:
+                    numlines = 2
 
-            for lno, (line, width) in enumerate(lines):
-                draw.text(
-                    (
-                        (image.width - width) / 2,
-                        image.height - (5 + (self.__height * (numlines - lno))),
-                    ),
-                    text=line,
-                    font=self.__font,
-                    anchor="lt",
-                    fill="white",
-                )
+                for lno, (line, width, _) in enumerate(lines):
+                    draw.text(
+                        (
+                            (image.width - width) / 2,
+                            image.height - (5 + (self.__height * (numlines - lno))),
+                        ),
+                        text=line,
+                        font=self.__font,
+                        anchor="lt",
+                        fill="white",
+                    )
 
             if self.__rotation != 0:
                 w, h = image.size
@@ -477,11 +495,11 @@ class StreamDeckDriver:
             # setting brightness to 0 does not actually fully blank the screen.
             # We rely on blending with all black to set all pixels to zero. Kinda
             # a hack but it works.
-            key_style = {
-                "icon": os.path.join(ASSETS_PATH, self.__icon_images.blank),
-                "label": "",
-                "color": "#000000",
-            }
+            key_style = KeyStyle(
+                icon=os.path.join(ASSETS_PATH, self.__icon_images.blank),
+                label=None,
+                color="#000000",
+            )
 
             # We also want to keep a running tally of the cached state so if something
             # changes while we're blanked we display it instantly on wake.
@@ -503,14 +521,12 @@ class StreamDeckDriver:
             except (KeyError, IndexError):
                 button_image = None
 
-            key_style = {
-                "icon": os.path.join(
-                    ASSETS_PATH,
-                    button_image or self.__icon_images.blank,
-                ),
-                "label": "",
-                "color": "#FFFFFF",
-            }
+            key_style = KeyStyle(
+                icon=button_image
+                or os.path.join(ASSETS_PATH, self.__icon_images.blank),
+                label=None,
+                color=self.__icon_colors.blank,
+            )
         else:
             actual_button = self.__buttons[virtual_key]
             if cached_only:
@@ -532,14 +548,14 @@ class StreamDeckDriver:
                     self.__icon_images.on if state else self.__icon_images.off,
                 )
 
-            key_style = {
-                "icon": icon,
-                "label": actual_button.label,
-                "color": self.__icon_colors.on if state else self.__icon_colors.off,
-            }
+            key_style = KeyStyle(
+                icon=icon,
+                label=actual_button.label,
+                color=self.__icon_colors.on if state else self.__icon_colors.off,
+            )
 
         image = self.__render_key_image(
-            key_style["icon"], key_style["color"], key_style["label"]
+            key_style.icon, key_style.color, key_style.label
         )
 
         try:
@@ -617,6 +633,7 @@ class Config:
             self.icon_color_off = str(
                 icon_color.get(False, icon_color.get("off", "#777777"))
             )
+            self.icon_color_blank = str(icon_color.get("blank", "#555555"))
 
             icon_image = icon.get("image", {})
 
@@ -682,7 +699,11 @@ if __name__ == "__main__":
                 off=config.icon_image_off,
                 blank=config.icon_image_blank,
             ),
-            icon_color=IconColor(on=config.icon_color_on, off=config.icon_color_off),
+            icon_color=IconColor(
+                on=config.icon_color_on,
+                off=config.icon_color_off,
+                blank=config.icon_color_blank,
+            ),
             brightness=config.screen_brightness,
             rotation=config.screen_rotation,
             timeout=config.screen_timeout,
@@ -690,8 +711,10 @@ if __name__ == "__main__":
 
         try:
 
-            def buttonfactory(entity: str) -> Button:
-                if entity and config.homeassistant_uri and config.homeassistant_token:
+            def buttonfactory(entity: Optional[str]) -> Button:
+                if entity and entity[:4].lower() == "mdi:":
+                    return BlankButton(icon=entity)
+                elif entity and config.homeassistant_uri and config.homeassistant_token:
                     return HomeAssistantButton(
                         config.homeassistant_uri,
                         config.homeassistant_token,
