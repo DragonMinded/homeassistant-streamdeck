@@ -365,7 +365,9 @@ class StreamDeckDriver:
             if icon_filename[:4] == "mdi:":
                 icon = Image.new("RGB", (64, 64))
                 image = PILHelper.create_scaled_image(
-                    self.deck, icon, margins=[0, 0, 20, 0]
+                    self.deck,
+                    icon,
+                    margins=[0, 0, 20 if label_text is not None else 0, 0],
                 )
 
                 # We control this, so we don't care about anything other than
@@ -387,7 +389,9 @@ class StreamDeckDriver:
             else:
                 icon = Image.open(icon_filename)
                 iconimage = PILHelper.create_scaled_image(
-                    self.deck, icon, margins=[0, 0, 20, 0]
+                    self.deck,
+                    icon,
+                    margins=[0, 0, 20 if label_text is not None else 0, 0],
                 )
                 colorimage = Image.new("RGB", iconimage.size, icon_color)
                 image = ImageChops.multiply(iconimage, colorimage)
@@ -515,6 +519,11 @@ class StreamDeckDriver:
                     and actual_button.icon in self.__mdi_mapping
                 ):
                     button_image = actual_button.icon
+                elif (
+                    actual_button.icon is not None
+                    and actual_button.icon[:6].lower() == "image:"
+                ):
+                    button_image = os.path.join(ASSETS_PATH, actual_button.icon[6:])
                 else:
                     button_image = None
 
@@ -712,7 +721,9 @@ if __name__ == "__main__":
         try:
 
             def buttonfactory(entity: Optional[str]) -> Button:
-                if entity and entity[:4].lower() == "mdi:":
+                if entity and (
+                    entity[:4].lower() == "mdi:" or entity[:6].lower() == "image:"
+                ):
                     return BlankButton(icon=entity)
                 elif entity and config.homeassistant_uri and config.homeassistant_token:
                     return HomeAssistantButton(
