@@ -42,6 +42,8 @@ The URL should be the access URL that you type into a browser in order to connec
 
 If you wish to use a graphic with a particular spacer instead of the configured blank image, you can do so with a special syntax. Assuming you have MDI icons configured properly, you can select a particular MDI icon by adding an entity prefixed with "mdi:". For instance, to show the Xbox logo in a blank spot, add an entity named `"mdi:microsoft-xbox"` to your entities list. Similarly, if you wish to use a graphic file, you can add an entity prefixed with "image:". For instance, to show a graphic called "Test.png" inside the `Assets/` directory, add an entity named `"image:Test.png"` to your entities list. Note that these images will be colored using the blank color as specified in the icon option section.
 
+Optionally, a monitoring server can be opened that will allow you to periodically check that your device is up and running properly. You can use this if you want to monitor a Stream Deck being driven off of a flaky wifi connection. If you want this, set enabled to "true" under the Home Assistant monitoring section. If you wish to change the port as well, you can do so by editing the port. Note that the port must be between 1 and 65535. If you are on a unix system then ports below 1024 require root access to use.
+
 ### Example Config File
 
 ```

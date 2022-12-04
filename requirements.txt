@@ -1,10 +1,13 @@
 mypy
 flake8
 black
+requests
 types-requests
+pyyaml
 types-pyyaml
 pillow
-pyyaml
 streamdeck
 requests
 tinycss2
+flask
+types-flask

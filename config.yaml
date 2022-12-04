@@ -20,4 +20,7 @@ icon:
 homeassistant:
   url: https://your.hass.install.here/
   token: your_long_lived_token_here
+  monitoring:
+    enabled: false
+    port: 8080
   entities:

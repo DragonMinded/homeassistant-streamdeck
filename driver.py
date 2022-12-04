@@ -5,6 +5,7 @@ import requests
 import threading
 import time
 import yaml
+from multiprocessing import Process
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import tinycss2  # type: ignore
@@ -622,6 +623,16 @@ class Config:
             for entry in hass.get("entities", []) or []:
                 self.homeassistant_entities.append(entry)
 
+            # If present, read the monitoring port argument to put a simple HTTP
+            # monitoring page up.
+            monitoring = hass.get("monitoring", {})
+            enabled = bool(monitoring.get("enabled", False))
+            if enabled:
+                port = int(monitoring.get("port", 8080))
+            else:
+                port = None
+            self.homeassistant_monitoring_port: Optional[int] = port
+
             font = yamlfile.get("font", {})
             self.font_size = int(font.get("size", 14))
             self.font_face = font.get("face", "DejaVuSans.ttf")
@@ -660,6 +671,46 @@ class Config:
             self.icon_mdi_face: Optional[str] = icon_mdi.get("face", None)
 
 
+def monitoring_thread(port: int, decktype: str, serial: str, version: str) -> None:
+    # Conditional import to stop the driver itself from needing a flask
+    # dependency if you only want to import and use StreamDeckDriver in
+    # your own code.
+    import json
+    from flask import Flask, Response
+
+    app = Flask("monitoring thread")
+
+    @app.route("/")
+    def monitor() -> Response:
+        return Response(
+            response=json.dumps(
+                {
+                    "type": decktype,
+                    "serial": serial,
+                    "version": version,
+                }
+            ),
+            status=200,
+            mimetype="application/json",
+        )
+
+    try:
+        print(f"Listening on port {port} for monitoring HTTP requests.")
+
+        # Kinda stupid that we can't disable this. I don't care that this is non-production,
+        # its literally a monitoring port for a dang wall-mounted local interface.
+        import sys
+
+        f = open(os.devnull, "w")
+        sys.stdout = f
+        sys.stderr = f
+
+        app.run(port=port, debug=False, use_reloader=False)
+    except KeyboardInterrupt:
+        # Silently exit without spewing
+        pass
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Control a series of switches from a StreamDeck."
@@ -673,6 +724,7 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
     config = Config(args.config)
+    proc: Optional[Process] = None
 
     streamdecks = DeviceManager().enumerate()
 
@@ -718,6 +770,18 @@ if __name__ == "__main__":
             timeout=config.screen_timeout,
         )
 
+        if config.homeassistant_monitoring_port is not None:
+            proc = Process(
+                target=monitoring_thread,
+                args=(
+                    config.homeassistant_monitoring_port,
+                    found_deck.deck_type(),
+                    found_deck.get_serial_number(),
+                    found_deck.get_firmware_version(),
+                ),
+            )
+            proc.start()
+
         try:
 
             def buttonfactory(entity: Optional[str]) -> Button:
@@ -744,9 +808,15 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("Closing device due to Ctrl-C request.")
             driver.close()
+        finally:
+            # Kill monitor thread now that we're out.
+            if proc:
+                proc.terminate()
 
-    # Wait until all application threads have terminated (for this example,
-    # this is when all deck handles are closed).
+        # We only support driving the first found stream deck.
+        break
+
+    # Wait until all application threads have terminated (all deck handles are closed).
     for t in threading.enumerate():
         try:
             t.join()
