@@ -705,7 +705,7 @@ def monitoring_thread(port: int, decktype: str, serial: str, version: str) -> No
         sys.stdout = f
         sys.stderr = f
 
-        app.run(port=port, debug=False, use_reloader=False)
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
     except KeyboardInterrupt:
         # Silently exit without spewing
         pass
