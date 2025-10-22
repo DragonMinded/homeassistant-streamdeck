@@ -9,7 +9,7 @@ from multiprocessing import Process
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import tinycss2  # type: ignore
-from PIL import Image, ImageDraw, ImageFont, ImageChops  # type: ignore
+from PIL import Image, ImageDraw, ImageFont, ImageChops
 from StreamDeck.DeviceManager import DeviceManager  # type: ignore
 from StreamDeck.ImageHelpers import PILHelper  # type: ignore
 from StreamDeck.Transport.Transport import TransportError  # type: ignore
@@ -136,6 +136,7 @@ class StreamDeckDriver:
         ),
         icon_color: IconColor = IconColor(on="#FFFFFF", off="#777777", blank="#555555"),
         fontsize: int = 14,
+        fontrows: int = 1,
         brightness: int = 30,
         rotation: int = 0,
         timeout: int = 60,
@@ -161,7 +162,8 @@ class StreamDeckDriver:
         self.__states: Dict[int, Optional[bool]] = {}
         self.__images: Dict[str, StreamDeckImage] = {}
         self.__height: int = fontsize
-        self.__font: ImageFont.ImageFont = ImageFont.truetype(
+        self.__rows: int = fontrows
+        self.__font: ImageFont.FreeTypeFont = ImageFont.truetype(
             os.path.join(ASSETS_PATH, font), self.__height
         )
         self.__icon_colors = icon_color
@@ -190,7 +192,7 @@ class StreamDeckDriver:
 
         # Parse and set up MDI if provided
         self.__mdi_mapping: Dict[str, str] = {}
-        self.__mdi_font: Optional[ImageFont.ImageFont] = None
+        self.__mdi_font: Optional[ImageFont.FreeTypeFont] = None
 
         if icon_mdi.css and icon_mdi.face:
             actual_css = os.path.join(ASSETS_PATH, icon_mdi.css)
@@ -241,7 +243,7 @@ class StreamDeckDriver:
                 mapping[f"mdi:{token[4:]}"] = content[2]
 
             self.__mdi_mapping = mapping
-            self.__mdi_font = ImageFont.ImageFont = ImageFont.truetype(
+            self.__mdi_font = ImageFont.truetype(
                 os.path.join(ASSETS_PATH, icon_mdi.face), 64
             )
 
@@ -327,13 +329,13 @@ class StreamDeckDriver:
         return (word[:loc], word[loc:])
 
     def __get_font_params(
-        self, font: ImageFont.ImageFont, line: str
+        self, font: ImageFont.FreeTypeFont, line: str
     ) -> Tuple[int, int]:
         left, top, right, bottom = font.getbbox(line)
-        return (abs(right - left), abs(bottom - top))
+        return (int(abs(right - left)), int(abs(bottom - top)))
 
     def __get_wrapped_text(
-        self, font: ImageFont.ImageFont, label_text: str, line_length: int
+        self, font: ImageFont.FreeTypeFont, label_text: str, line_length: int
     ) -> List[Tuple[str, int, int]]:
         lines = [""]
         for word in label_text.split():
@@ -371,22 +373,24 @@ class StreamDeckDriver:
                     margins=[0, 0, 20 if label_text is not None else 0, 0],
                 )
 
-                # We control this, so we don't care about anything other than
-                # the first line.
-                text = self.__mdi_mapping[icon_filename]
-                widths = self.__get_wrapped_text(self.__mdi_font, text, image.width)
+                # Only draw the image if we actually have the MDI font.
+                if self.__mdi_font and self.__mdi_mapping and icon_filename in self.__mdi_mapping:
+                    # We control this, so we don't care about anything other than
+                    # the first line.
+                    text = self.__mdi_mapping[icon_filename]
+                    widths = self.__get_wrapped_text(self.__mdi_font, text, image.width)
 
-                mdi_draw = ImageDraw.Draw(image)
-                mdi_draw.text(
-                    (
-                        (image.width - widths[0][1]) / 2,
-                        (image.height - widths[0][2]) / 2 if label_text is None else 0,
-                    ),
-                    text=text,
-                    anchor="lt",
-                    font=self.__mdi_font,
-                    fill=icon_color,
-                )
+                    mdi_draw = ImageDraw.Draw(image)
+                    mdi_draw.text(
+                        (
+                            (image.width - widths[0][1]) / 2,
+                            (image.height - widths[0][2]) / 2 if label_text is None else 0,
+                        ),
+                        text=text,
+                        anchor="lt",
+                        font=self.__mdi_font,
+                        fill=icon_color,
+                    )
             else:
                 icon = Image.open(icon_filename)
                 iconimage = PILHelper.create_scaled_image(
@@ -402,8 +406,8 @@ class StreamDeckDriver:
             if label_text is not None:
                 lines = self.__get_wrapped_text(self.__font, label_text, image.width)
                 numlines = len(lines)
-                if numlines < 2:
-                    numlines = 2
+                if numlines < self.__rows:
+                    numlines = self.__rows
 
                 for lno, (line, width, _) in enumerate(lines):
                     draw.text(
@@ -636,6 +640,7 @@ class Config:
             font = yamlfile.get("font", {})
             self.font_size = int(font.get("size", 14))
             self.font_face = font.get("face", "DejaVuSans.ttf")
+            self.font_rows = int(font.get("rows", 1))
 
             screen = yamlfile.get("screen", {})
             self.screen_brightness = int(screen.get("brightness", 30))
@@ -751,6 +756,7 @@ if __name__ == "__main__":
             found_deck,
             font=config.font_face,
             fontsize=config.font_size,
+            fontrows=config.font_rows,
             icon_mdi=IconMDI(
                 css=config.icon_mdi_css,
                 face=config.icon_mdi_face,

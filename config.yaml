@@ -1,6 +1,7 @@
 font:
   face: DejaVuSans.ttf
   size: 14
+  rows: 1
 screen:
   brightness: 30
   rotation: 0

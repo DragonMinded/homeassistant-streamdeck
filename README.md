@@ -24,7 +24,7 @@ The `config.yaml` sample configuration can be edited or copied to make a configu
 
 ### Font Options
 
-The font face is the actual true type font that should be used for rendering individual entity labels. It must exist in the `Assets/` folder. A default has been provided for you, but you can find your own font and place it in the directory if you want. The font size is the point size that the entity labels will be rendered in. You can modify this to make the labels bigger or smaller.
+The font face is the actual true type font that should be used for rendering individual entity labels. It must exist in the `Assets/` folder. A default has been provided for you, but you can find your own font and place it in the directory if you want. The font size is the point size that the entity labels will be rendered in. You can modify this to make the labels bigger or smaller. The font rows is the minimum number of rows you want the labels for buttons to take up. It's defaulted to 1 which will align text to the bottom of the button, but you can adjust the minimum number of rows if you want to align all text across buttons and some of your labels take up more than one line.
 
 ### Screen Options
 
@@ -71,6 +71,7 @@ homeassistant:
 font:
   face: DejaVuSans.ttf
   size: 12
+  rows: 1
 icon:
   image:
     on: On.png
